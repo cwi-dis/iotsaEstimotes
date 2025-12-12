@@ -2,7 +2,6 @@
 #define _IOTSAESTIMOTE_H_
 #include "iotsa.h"
 #include "iotsaApi.h"
-#include "iotsaDMX.h"
 
 #include <BLEDevice.h>
 #include <BLEUtils.h>
@@ -28,15 +27,13 @@ public:
     pBLEScan(NULL),
     nKnownEstimote(0),
     nNewEstimote(0),
-    estimotes(NULL),
-    dmx(NULL)
+    estimotes(NULL)
   {}
 
   void setup() override;
   void serverSetup() override;
   void loop() override;
   String info() override;
-  void setDMX(IotsaDMXMod *_dmx, int portIndex);
   // BLE callback
   void onResult(BLEAdvertisedDevice advertisedDevice);
 protected:
@@ -53,8 +50,6 @@ protected:
   int nKnownEstimote;
   int nNewEstimote;
   struct Estimote *estimotes;
-  IotsaDMXMod *dmx;
-  uint8_t sliderBuffer[512];
 };
 
 #endif

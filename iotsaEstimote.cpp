@@ -35,7 +35,6 @@ static uint32_t dontScanBefore;
 static bool continueScanning = false;
 #endif
 static bool isScanning;
-static uint32_t sendDMXat;
 static uint32_t startScanAt;
 
 static void scanCompleteCB(BLEScanResults results) {
@@ -236,10 +235,6 @@ void IotsaEstimoteMod::configSave() {
   }
 }
 
-void IotsaEstimoteMod::setDMX(IotsaDMXMod *_dmx, int portIndex) {
-  dmx = _dmx;
-  dmx->setDMXInputHandler(portIndex, sliderBuffer, 512);
-}
 
 bool IotsaEstimoteMod::_allSensorsSeen() {
   struct Estimote *ep = estimotes;
@@ -271,15 +266,6 @@ void IotsaEstimoteMod::_sensorData(uint8_t *id, int8_t x, int8_t y, int8_t z) {
       ep->z = z;
       IFDEBUG IotsaSerial.printf("Estimote num=%d x=%d y=%d z=%d\n", (ep-estimotes), ep->x, ep->y, ep->z);
       int idx = ep-estimotes;
-      sliderBuffer[6*idx+0] = x > 0 ? x*2 : 0;
-      sliderBuffer[6*idx+1] = x < 0 ? -x*2 : 0;
-      sliderBuffer[6*idx+2] = y > 0 ? y*2 : 0;
-      sliderBuffer[6*idx+3] = y < 0 ? -y*2 : 0;
-      sliderBuffer[6*idx+4] = z > 0 ? z*2 : 0;
-      sliderBuffer[6*idx+5] = z < 0 ? -z*2 : 0;
-      if (n < nKnownEstimote && dmx) {
-        sendDMXat = millis() + BLESCAN_DURATION_AFTER_SUCCESS;
-      }
       return;
     }
     ep++;
@@ -307,27 +293,12 @@ void IotsaEstimoteMod::_sensorData(uint8_t *id, int8_t x, int8_t y, int8_t z) {
 }
 
 void IotsaEstimoteMod::loop() {
-#if 0
-  if (!isScanning && wantToSendDMX) {
-    wantToSendDMX = false;
-    dmx->dmxInputChanged();
-    return;
-  }
-#endif
   //
   // If we have a pending transmission we stop scanning (if we are scanning) to 
   // free the radio, we prepare for sending the DMX packet and we schedule
   // restart of the scan
   //
-  if (sendDMXat != 0 && millis() > sendDMXat) {
-    if (isScanning) {
-      pBLEScan->stop();
-      isScanning = false;
-      startScanAt = millis() + BLESCAN_DURATION_NOSCAN;
-    }
-    if (dmx) dmx->dmxInputChanged();
-    sendDMXat = 0;
-  }
+
   if (!isScanning && millis() > startScanAt) {
     pBLEScan->clearResults();
     _resetSensorsSeen();
@@ -338,21 +309,15 @@ void IotsaEstimoteMod::loop() {
 }
 
 void IotsaEstimoteMod::onResult(BLEAdvertisedDevice advertisedDevice) {
-  //IFDEBUG IotsaSerial.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
   std::string manufacturerDataString(advertisedDevice.getManufacturerData());
   uint8_t *manufacturerData = (uint8_t *)manufacturerDataString.data();
   uint8_t manufacturerDataLength = (uint8_t)manufacturerDataString.length();
   if (manufacturerDataLength < sizeof(NearableAdvertisement)) {
-    //IFDEBUG IotsaSerial.println("Too short");
     return;
   }
   NearableAdvertisement *adv = (NearableAdvertisement *)manufacturerData;
   if (adv->companyID != ID_ESTIMOTE) {
-    //IFDEBUG IotsaSerial.println("Not estimote");
     return;
   }
-#if 0
-  IFDEBUG IotsaSerial.printf("Estimote %2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x x=%d y=%d z=%d\n", adv->nearableID[0], adv->nearableID[1], adv->nearableID[2], adv->nearableID[3], adv->nearableID[4], adv->nearableID[5], adv->nearableID[6], adv->nearableID[7], adv->xAccelleration, adv->yAccelleration, adv->zAccelleration);
-#endif
   _sensorData(adv->nearableID, adv->xAccelleration, adv->yAccelleration, adv->zAccelleration);
 }
