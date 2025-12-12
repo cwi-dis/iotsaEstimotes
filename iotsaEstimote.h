@@ -14,9 +14,19 @@
 #define IotsaEstimoteModBaseMod IotsaMod
 #endif
 
+struct NearableAdvertisement;
 struct Estimote {
   uint8_t id[8];
-  int8_t x, y, z;
+  bool moving;
+  int curMoveDuration;
+  std::string curMoveScale;
+  int prevMoveDuration;
+  std::string prevMoveScale;
+  float x, y, z;
+  float temp;
+  bool voltageStress;
+  float voltage;
+
   bool seen;
 };
 
@@ -42,9 +52,7 @@ protected:
   void configLoad() override;
   void configSave() override;
   void handler();
-  bool _allSensorsSeen();
-  void _resetSensorsSeen();
-  void _sensorData(uint8_t *id, int8_t x, int8_t y, int8_t z);
+  void _sensorData(struct NearableAdvertisement *pkt);
   String argument;
   BLEScan* pBLEScan;
   int nKnownEstimote;

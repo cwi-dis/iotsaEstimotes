@@ -12,22 +12,24 @@
 #define BLESCAN_DURATION_AFTER_SUCCESS 100 // Milliseconds to continue scanning after a detection
 #define BLESCAN_DURATION_NOSCAN 180 // Milliseconds to not use the radio for BLE to allow WiFi
 
+
+// Structure of the packet comes from https://github.com/Estimote/estimote-specs/blob/master/estimote-nearable.js
 #pragma pack(push, 1)
-typedef struct NearableAdvertisement {
+struct NearableAdvertisement {
   uint16_t companyID;
   uint8_t frameType;
   uint8_t nearableID[8];
   uint8_t hardwareVersion;
   uint8_t firmwareVersion;
   uint8_t tempLo;
-  uint8_t tempHi;
+  uint8_t tempHiAndVoltage;
   uint8_t voltageAndMoving;
   int8_t xAccelleration;
   int8_t yAccelleration;
   int8_t zAccelleration;
   uint8_t curMovementDuration;
   uint8_t prevMovementDuration;
-} NearableAdvertisement;
+};
 #pragma pack(pop)
 
 #if 0
@@ -104,7 +106,7 @@ IotsaEstimoteMod::handler() {
   for (int i=0; i<nKnownEstimote; i++) {
     String id;
     _id2hex(estimotes[i].id, id);
-    message += "<li>" + id + ", x=" + String(estimotes[i].x) + " y=" + String(estimotes[i].y) + " z=" + String(estimotes[i].z) + "</li>";
+    message += "<li>" + id + ", x=" + String(estimotes[i].x) + " y=" + String(estimotes[i].y) + " z=" + String(estimotes[i].z) + ", moving=" + String(estimotes[i].moving) + ", curDur=" + String(estimotes[i].curMoveDuration) + " " + estimotes[i].curMoveScale.c_str() + ", prevDur=" + String(estimotes[i].prevMoveDuration) + " " + estimotes[i].prevMoveScale.c_str() + ", temp=" + String(estimotes[i].temp) + ", voltage=" + String(estimotes[i].voltage) + "</li>";
   }
   message += "</ol><form method='get'><input type='submit' name='Clear' value='Clear'></form>";
 
@@ -167,6 +169,10 @@ bool IotsaEstimoteMod::putHandler(const char *path, const JsonVariant& request, 
         const String& id = ids[i];
         _hex2id(id, estimotes[i].id);
         estimotes[i].x = estimotes[i].y = estimotes[i].z = 0;
+        estimotes[i].moving = false;
+        estimotes[i].curMoveDuration = estimotes[i].prevMoveDuration = 0;
+        estimotes[i].temp = 0;
+        estimotes[i].voltage = 0;
         estimotes[i].seen = false;
       }
     }
@@ -207,12 +213,12 @@ void IotsaEstimoteMod::configLoad() {
       String name = "id_" + String(i);
       String byteString;
       cf.get(name, byteString, "0000000000000000");
-  //    IFDEBUG IotsaSerial.print("load ");
-  //    IFDEBUG IotsaSerial.print(name);
-  //    IFDEBUG IotsaSerial.print(", value ");
-  //    IFDEBUG IotsaSerial.println(byteString);
       _hex2id(byteString, estimotes[i].id);
       estimotes[i].x = estimotes[i].y = estimotes[i].z = 0;
+      estimotes[i].moving = false;
+      estimotes[i].curMoveDuration = estimotes[i].prevMoveDuration = 0;
+      estimotes[i].temp = 0;
+      estimotes[i].voltage = 0;
       estimotes[i].seen = false;
     }
   }
@@ -226,45 +232,56 @@ void IotsaEstimoteMod::configSave() {
     String name = "id_" + String(i);
     String byteString;
     _id2hex(ep->id, byteString);
-//    IFDEBUG IotsaSerial.print("save ");
-//    IFDEBUG IotsaSerial.print(name);
-//    IFDEBUG IotsaSerial.print(", value ");
-//    IFDEBUG IotsaSerial.println(byteString);
     cf.put(name, byteString);
     ep++;
   }
 }
 
-
-bool IotsaEstimoteMod::_allSensorsSeen() {
-  struct Estimote *ep = estimotes;
-  int n = nKnownEstimote;
-  while(n-- > 0) {
-    if (!ep->seen) return false;
-    ep++;
-  }
-  return true;
+void _parseDuration(std::string& scale, int& duration, uint8_t raw) {
+      int number = raw & 0b00111111;
+      int code = (raw & 0b11000000) >> 6;
+      duration = number;
+      if (code == 0) {
+        scale = "seconds";
+      } else if (code == 1) {
+        scale = "minutes";
+      } else if (code == 2) {
+        scale = "hours";
+      } else if (code == 3 && number < 32) {
+        scale = "days";
+      } else {
+        scale = "weeks";
+        number = number - 32;
+      }
 }
 
-void IotsaEstimoteMod::_resetSensorsSeen() {
-  struct Estimote *ep = estimotes;
-  int n = nKnownEstimote;
-  while(n-- > 0) {
-    ep->seen = false;
-    ep++;
+void _parsePacket(struct Estimote *ep, struct NearableAdvertisement *pkt) {
+  int tempRaw = (pkt->tempHiAndVoltage & 0xf) << 8 | pkt->tempLo;
+  if (tempRaw > 2047) {
+    tempRaw -= 4096;
   }
+  ep->temp = tempRaw / 16.0;
+  ep->moving = pkt->voltageAndMoving & 0b01000000;
+  ep->voltageStress = pkt->voltageAndMoving & 0b10000000;
+  int voltRaw = ((pkt->voltageAndMoving & 0b00111111) << 4) | ((pkt->tempHiAndVoltage & 0b11110000) >> 4);
+  ep->voltage = (3 * 1.2 * voltRaw) / 1023;
+  ep->x = 15.621 * pkt->xAccelleration;
+  ep->y = 15.621 * pkt->yAccelleration;
+  ep->z = 15.621 * pkt->zAccelleration;
+  _parseDuration(ep->curMoveScale, ep->curMoveDuration, pkt->curMovementDuration);
+  _parseDuration(ep->prevMoveScale, ep->prevMoveDuration, pkt->prevMovementDuration);
+
 }
 
-void IotsaEstimoteMod::_sensorData(uint8_t *id, int8_t x, int8_t y, int8_t z) {
+void IotsaEstimoteMod::_sensorData(struct NearableAdvertisement *pkt) {
   struct Estimote *ep = estimotes;
   int n = nKnownEstimote + nNewEstimote;
   while(n-- > 0) {
-    if (memcmp(id, ep->id, 8) == 0) {
+    if (memcmp(pkt->nearableID, ep->id, 8) == 0) {
       ep->seen = true;
-      ep->x = x;
-      ep->y = y;
-      ep->z = z;
-      IFDEBUG IotsaSerial.printf("Estimote num=%d x=%d y=%d z=%d\n", (ep-estimotes), ep->x, ep->y, ep->z);
+      _parsePacket(ep, pkt);
+
+      IFDEBUG IotsaSerial.printf("Estimote num=%d x=%f y=%f z=%f\n", (ep-estimotes), ep->x, ep->y, ep->z);
       int idx = ep-estimotes;
       return;
     }
@@ -284,10 +301,8 @@ void IotsaEstimoteMod::_sensorData(uint8_t *id, int8_t x, int8_t y, int8_t z) {
   }
   estimotes = ep;
   ep = ep + (n-1);
-  memcpy(ep->id, id, 8);
-  ep->x = x;
-  ep->y = y;
-  ep->z = z;
+  memcpy(ep->id, pkt->nearableID, 8);
+  _parsePacket(ep, pkt);
   ep->seen = true;
   IFDEBUG IotsaSerial.printf("New Estimote %2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x x=%d y=%d z=%d\n", ep->id[0], ep->id[1], ep->id[2], ep->id[3], ep->id[4], ep->id[5], ep->id[6], ep->id[7], ep->x, ep->y, ep->z);
 }
@@ -301,7 +316,6 @@ void IotsaEstimoteMod::loop() {
 
   if (!isScanning && millis() > startScanAt) {
     pBLEScan->clearResults();
-    _resetSensorsSeen();
     IFDEBUG IotsaSerial.print("SCAN ");
     isScanning = pBLEScan->start(BLESCAN_MAX_DURATION, scanCompleteCB);
     IFDEBUG IotsaSerial.println("started");
@@ -319,5 +333,5 @@ void IotsaEstimoteMod::onResult(BLEAdvertisedDevice advertisedDevice) {
   if (adv->companyID != ID_ESTIMOTE) {
     return;
   }
-  _sensorData(adv->nearableID, adv->xAccelleration, adv->yAccelleration, adv->zAccelleration);
+  _sensorData(adv);
 }
