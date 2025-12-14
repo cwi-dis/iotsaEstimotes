@@ -12,6 +12,13 @@
 #define BLESCAN_DURATION_AFTER_SUCCESS 100 // Milliseconds to continue scanning after a detection
 #define BLESCAN_DURATION_NOSCAN 180 // Milliseconds to not use the radio for BLE to allow WiFi
 
+char *periodNames[] = {
+  "seconds",
+  "minutes",
+  "hours",
+  "days",
+  "weeks"
+};
 
 // Structure of the packet comes from https://github.com/Estimote/estimote-specs/blob/master/estimote-nearable.js
 #pragma pack(push, 1)
@@ -106,7 +113,7 @@ IotsaEstimoteMod::handler() {
   for (int i=0; i<nKnownEstimote; i++) {
     String id;
     _id2hex(estimotes[i].id, id);
-    message += "<li>" + id + ", x=" + String(estimotes[i].x) + " y=" + String(estimotes[i].y) + " z=" + String(estimotes[i].z) + ", moving=" + String(estimotes[i].moving) + ", curDur=" + String(estimotes[i].curMoveDuration) + " " + estimotes[i].curMoveScale.c_str() + ", prevDur=" + String(estimotes[i].prevMoveDuration) + " " + estimotes[i].prevMoveScale.c_str() + ", temp=" + String(estimotes[i].temp) + ", voltage=" + String(estimotes[i].voltage) + "</li>";
+    message += "<li>" + id + ", x=" + String(estimotes[i].x) + " y=" + String(estimotes[i].y) + " z=" + String(estimotes[i].z) + ", moving=" + String(estimotes[i].moving) + ", curDur=" + String(estimotes[i].curMoveDuration) + " " + periodNames[estimotes[i].curMovePeriod] + ", prevDur=" + String(estimotes[i].prevMoveDuration) + " " + periodNames[estimotes[i].prevMovePeriod] + ", temp=" + String(estimotes[i].temp) + ", voltage=" + String(estimotes[i].voltage) + (estimotes[i].voltageStress ? " (radio on)" : " (idle)") + "</li>";
   }
   message += "</ol><form method='get'><input type='submit' name='Clear' value='Clear'></form>";
 
@@ -237,21 +244,16 @@ void IotsaEstimoteMod::configSave() {
   }
 }
 
-void _parseDuration(std::string& scale, int& duration, uint8_t raw) {
+void _parseDuration(int& period, int& duration, uint8_t raw) {
       int number = raw & 0b00111111;
       int code = (raw & 0b11000000) >> 6;
       duration = number;
-      if (code == 0) {
-        scale = "seconds";
-      } else if (code == 1) {
-        scale = "minutes";
-      } else if (code == 2) {
-        scale = "hours";
-      } else if (code == 3 && number < 32) {
-        scale = "days";
-      } else {
-        scale = "weeks";
+      // 3 is special: number < 32 means days, >= 32 means weeks+32
+      if (code == 3 && number >= 32) {
+        period = 4;
         number = number - 32;
+      } else {
+        period = code;
       }
 }
 
@@ -265,11 +267,11 @@ void _parsePacket(struct Estimote *ep, struct NearableAdvertisement *pkt) {
   ep->voltageStress = pkt->voltageAndMoving & 0b10000000;
   int voltRaw = ((pkt->voltageAndMoving & 0b00111111) << 4) | ((pkt->tempHiAndVoltage & 0b11110000) >> 4);
   ep->voltage = (3 * 1.2 * voltRaw) / 1023;
-  ep->x = 15.621 * pkt->xAccelleration;
-  ep->y = 15.621 * pkt->yAccelleration;
-  ep->z = 15.621 * pkt->zAccelleration;
-  _parseDuration(ep->curMoveScale, ep->curMoveDuration, pkt->curMovementDuration);
-  _parseDuration(ep->prevMoveScale, ep->prevMoveDuration, pkt->prevMovementDuration);
+  ep->x = 0.015621 * pkt->xAccelleration;
+  ep->y = 0.015621 * pkt->yAccelleration;
+  ep->z = 0.015621 * pkt->zAccelleration;
+  _parseDuration(ep->curMovePeriod, ep->curMoveDuration, pkt->curMovementDuration);
+  _parseDuration(ep->prevMovePeriod, ep->prevMoveDuration, pkt->prevMovementDuration);
 
 }
 

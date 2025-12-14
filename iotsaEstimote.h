@@ -19,9 +19,9 @@ struct Estimote {
   uint8_t id[8];
   bool moving;
   int curMoveDuration;
-  std::string curMoveScale;
+  int curMovePeriod;
   int prevMoveDuration;
-  std::string prevMoveScale;
+  int prevMovePeriod;
   float x, y, z;
   float temp;
   bool voltageStress;
