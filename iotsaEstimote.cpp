@@ -147,10 +147,7 @@ void IotsaEstimoteMod::setup() {
 
 #ifdef IOTSA_WITH_API
 
-void _fillReply(JsonObject container, Estimote *ep) {
-  String id;
-  _id2hex(ep->id, id);
-  JsonObject repl = container[id].to<JsonObject>();
+void _fillValues(JsonObject repl, Estimote *ep) {
   repl["x"] = ep->x;
   repl["y"] = ep->y;
   repl["z"] = ep->z;
@@ -164,7 +161,28 @@ void _fillReply(JsonObject container, Estimote *ep) {
   repl["voltageUnderStress"] = ep->voltageStress;
 }
 
+void _fillReply(JsonObject container, Estimote *ep) {
+  String id;
+  _id2hex(ep->id, id);
+  JsonObject repl = container[id].to<JsonObject>();
+  _fillValues(repl, ep);
+}
+
 bool IotsaEstimoteMod::getHandler(const char *path, JsonObject& reply) {
+  if (server->hasArg("id")) {
+    // Special case: get results for a single estimote
+    String idWanted = server->arg("id");
+    uint8_t idbuf[8];
+    _hex2id(idWanted, idbuf);
+    for (int i=0; i<nKnownEstimote; i++) {
+      if (memcmp(idbuf, estimotes[i].id, 8) == 0) {
+        _fillValues(reply, estimotes+i);
+        return true;
+      }
+    }
+    IFDEBUG IotsaSerial.println("Unknown estimote " + idWanted);
+    return false;
+  }
   for (int i=0; i<nKnownEstimote; i++) {
     _fillReply(reply, estimotes+i);
   }
