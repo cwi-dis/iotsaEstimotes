@@ -12,7 +12,7 @@
 #define BLESCAN_DURATION_AFTER_SUCCESS 100 // Milliseconds to continue scanning after a detection
 #define BLESCAN_DURATION_NOSCAN 180 // Milliseconds to not use the radio for BLE to allow WiFi
 
-char *periodNames[] = {
+const char *periodNames[] = {
   "seconds",
   "minutes",
   "hours",
@@ -146,16 +146,32 @@ void IotsaEstimoteMod::setup() {
 }
 
 #ifdef IOTSA_WITH_API
+
+void _fillReply(JsonObject container, Estimote *ep) {
+  String id;
+  _id2hex(ep->id, id);
+  JsonObject repl = container[id].to<JsonObject>();
+  repl["x"] = ep->x;
+  repl["y"] = ep->y;
+  repl["z"] = ep->z;
+  repl["moving"] = ep->moving;
+  repl["curMoveDuration"] = ep->curMoveDuration;
+  repl["curMoveScale"] = periodNames[ep->curMovePeriod];
+  repl["prevMoveDuration"] = ep->prevMoveDuration;
+  repl["prevMoveScale"] = periodNames[ep->prevMovePeriod];
+  repl["temp"] = ep->temp;
+  repl["voltage"] = ep->voltage;
+  repl["voltageUnderStress"] = ep->voltageStress;
+}
+
 bool IotsaEstimoteMod::getHandler(const char *path, JsonObject& reply) {
-  JsonArray ids = reply.createNestedArray("estimotes");
-  JsonArray newIds = reply.createNestedArray("newEstimotes");
-  for (int i=0; i<nKnownEstimote+nNewEstimote; i++) {
-    String id;
-    _id2hex(estimotes[i].id, id);
-    if (i < nKnownEstimote) {
-      ids.add(id);
-    } else {
-      newIds.add(id);
+  for (int i=0; i<nKnownEstimote; i++) {
+    _fillReply(reply, estimotes+i);
+  }
+  if (nNewEstimote > 0) {
+    JsonObject newDevices = reply["_unknown_"].to<JsonObject>();
+    for (int i=nKnownEstimote; i < nKnownEstimote + nNewEstimote; i++) {
+      _fillReply(newDevices, estimotes+i);
     }
   }
   return true;
@@ -164,8 +180,8 @@ bool IotsaEstimoteMod::getHandler(const char *path, JsonObject& reply) {
 bool IotsaEstimoteMod::putHandler(const char *path, const JsonVariant& request, JsonObject& reply) {
   bool anyChanged = false;
   JsonObject reqObj = request.as<JsonObject>();
-  if (reqObj.containsKey("estimotes")) {
-    JsonArray ids = reqObj["estimotes"];
+  if (reqObj["estimotes"].is<JsonArray>()) {
+    JsonArray ids = reqObj["estimotes"].as<JsonArray>();
     if (estimotes) free(estimotes);
     estimotes = NULL;
     nKnownEstimote = nNewEstimote = 0;
