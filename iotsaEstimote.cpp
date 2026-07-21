@@ -127,7 +127,7 @@ IotsaEstimoteMod::handler() {
 }
 
 String IotsaEstimoteMod::info() {
-  String message = "<p>Built with estimote module. See <a href=\"/estimote\">/estimote</a> to change devices and settings or <a href=\"/api/estimote\">/api/estimote</a> for REST interface.</p>";
+  String message = "<p>Built with estimote module. See <a href=\"/estimote\">/estimote</a> to change devices and settings, <a href=\"/api/estimote\">/api/estimote</a> for the tracked/observed estimote configuration, or <a href=\"/api/readings\">/api/readings</a> for live sensor readings.</p>";
   return message;
 }
 #endif // IOTSA_WITH_WEB
@@ -169,28 +169,40 @@ void _fillReply(JsonObject container, Estimote *ep) {
 }
 
 bool IotsaEstimoteMod::getHandler(const char *path, JsonObject& reply) {
-  if (server->hasArg("id")) {
-    // Special case: get results for a single estimote
-    String idWanted = server->arg("id");
-    uint8_t idbuf[8];
-    _hex2id(idWanted, idbuf);
-    for (int i=0; i<nKnownEstimote; i++) {
-      if (memcmp(idbuf, estimotes[i].id, 8) == 0) {
-        _fillValues(reply, estimotes+i);
-        return true;
+  if (strcmp(path, "/api/readings") == 0) {
+    if (server->hasArg("id")) {
+      // Special case: get results for a single estimote
+      String idWanted = server->arg("id");
+      uint8_t idbuf[8];
+      _hex2id(idWanted, idbuf);
+      for (int i=0; i<nKnownEstimote; i++) {
+        if (memcmp(idbuf, estimotes[i].id, 8) == 0) {
+          _fillValues(reply, estimotes+i);
+          return true;
+        }
       }
+      IFDEBUG IotsaSerial.println("Unknown estimote " + idWanted);
+      return false;
     }
-    IFDEBUG IotsaSerial.println("Unknown estimote " + idWanted);
-    return false;
+    for (int i=0; i<nKnownEstimote; i++) {
+      _fillReply(reply, estimotes+i);
+    }
+    return true;
   }
+  // path == "/api/estimote": configuration. Just the names of tracked
+  // estimotes, and of untracked-but-observed ones available to add -- no
+  // sensor values here, those live under /api/readings.
+  JsonArray idList = reply["estimotes"].to<JsonArray>();
   for (int i=0; i<nKnownEstimote; i++) {
-    _fillReply(reply, estimotes+i);
+    String id;
+    _id2hex(estimotes[i].id, id);
+    idList.add(id);
   }
-  if (nNewEstimote > 0) {
-    JsonObject newDevices = reply["_unknown_"].to<JsonObject>();
-    for (int i=nKnownEstimote; i < nKnownEstimote + nNewEstimote; i++) {
-      _fillReply(newDevices, estimotes+i);
-    }
+  JsonArray unknownList = reply["unknown"].to<JsonArray>();
+  for (int i=nKnownEstimote; i<nKnownEstimote+nNewEstimote; i++) {
+    String id;
+    _id2hex(estimotes[i].id, id);
+    unknownList.add(id);
   }
   return true;
 }
@@ -230,6 +242,7 @@ void IotsaEstimoteMod::serverSetup() {
 #endif
 #ifdef IOTSA_WITH_API
   api.setup("/api/estimote", true, true);
+  api.setup("/api/readings", true, false);
   name = "estimote";
 #endif
 }
