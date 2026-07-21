@@ -198,7 +198,7 @@ bool IotsaEstimoteMod::getHandler(const char *path, JsonObject& reply) {
     _id2hex(estimotes[i].id, id);
     idList.add(id);
   }
-  JsonArray unknownList = reply["unknown"].to<JsonArray>();
+  JsonArray unknownList = reply["newEstimotes"].to<JsonArray>();
   for (int i=nKnownEstimote; i<nKnownEstimote+nNewEstimote; i++) {
     String id;
     _id2hex(estimotes[i].id, id);
