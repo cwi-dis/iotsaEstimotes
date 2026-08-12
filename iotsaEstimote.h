@@ -3,10 +3,12 @@
 #include "iotsa.h"
 #include "iotsaApi.h"
 
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+// NimBLEDevice.h sets up #define-based compat aliases (BLEDevice, BLEScan,
+// BLEAdvertisedDevice, etc. -> their Nim* equivalents). Including the old
+// legacy header names directly is ambiguous: depending on the toolchain,
+// they can resolve to the ESP32 core's own bundled (and here unwanted)
+// classic BLE library instead of NimBLE-Arduino.
+#include <NimBLEDevice.h>
 
 #ifdef IOTSA_WITH_API
 #define IotsaEstimoteModBaseMod IotsaApiMod
@@ -30,7 +32,7 @@ struct Estimote {
   bool seen;
 };
 
-class IotsaEstimoteMod : public IotsaEstimoteModBaseMod, public BLEAdvertisedDeviceCallbacks {
+class IotsaEstimoteMod : public IotsaEstimoteModBaseMod, public NimBLEScanCallbacks {
 public:
   IotsaEstimoteMod(IotsaApplication &_app, IotsaAuthenticationProvider *_auth=NULL, bool early=false)
   : IotsaEstimoteModBaseMod(_app, _auth, early),
@@ -44,8 +46,9 @@ public:
   void serverSetup() override;
   void loop() override;
   String info() override;
-  // BLE callback
-  void onResult(BLEAdvertisedDevice advertisedDevice);
+  // BLE scan callbacks
+  void onResult(const BLEAdvertisedDevice *advertisedDevice) override;
+  void onScanEnd(const NimBLEScanResults& scanResults, int reason) override;
 protected:
   bool getHandler(const char *path, JsonObject& reply) override;
   bool putHandler(const char *path, const JsonVariant& request, JsonObject& reply) override;
