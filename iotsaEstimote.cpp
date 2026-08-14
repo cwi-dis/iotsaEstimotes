@@ -130,8 +130,8 @@ String IotsaEstimoteMod::info() {
 void IotsaEstimoteMod::setup() {
   configLoad();
 
-  BLEDevice::init("");
-  pBLEScan = BLEDevice::getScan(); //create new scan
+  NimBLEDevice::init("");
+  pBLEScan = NimBLEDevice::getScan(); //create new scan
   pBLEScan->setScanCallbacks(this);
   isScanning = false;
   startScanAt = millis() + BLESCAN_DURATION_NOSCAN;
@@ -371,7 +371,7 @@ void IotsaEstimoteMod::onScanEnd(const NimBLEScanResults& scanResults, int reaso
   isScanning = false;
 }
 
-void IotsaEstimoteMod::onResult(const BLEAdvertisedDevice *advertisedDevice) {
+void IotsaEstimoteMod::onResult(const NimBLEAdvertisedDevice *advertisedDevice) {
   std::string manufacturerDataString(advertisedDevice->getManufacturerData());
   uint8_t *manufacturerData = (uint8_t *)manufacturerDataString.data();
   uint8_t manufacturerDataLength = (uint8_t)manufacturerDataString.length();

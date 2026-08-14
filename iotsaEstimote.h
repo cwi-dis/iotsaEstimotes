@@ -4,7 +4,8 @@
 #include "iotsaApi.h"
 
 // NimBLEDevice.h sets up #define-based compat aliases (BLEDevice, BLEScan,
-// BLEAdvertisedDevice, etc. -> their Nim* equivalents). Including the old
+// BLEAdvertisedDevice, etc. -> their Nim* equivalents), which this file
+// deliberately doesn't use (see cwi-dis/iotsa#185). Including the old
 // legacy header names directly is ambiguous: depending on the toolchain,
 // they can resolve to the ESP32 core's own bundled (and here unwanted)
 // classic BLE library instead of NimBLE-Arduino.
@@ -47,7 +48,7 @@ public:
   void loop() override;
   String info() override;
   // BLE scan callbacks
-  void onResult(const BLEAdvertisedDevice *advertisedDevice) override;
+  void onResult(const NimBLEAdvertisedDevice *advertisedDevice) override;
   void onScanEnd(const NimBLEScanResults& scanResults, int reason) override;
 protected:
   bool getHandler(const char *path, JsonObject& reply) override;
@@ -57,7 +58,7 @@ protected:
   void handler();
   void _sensorData(struct NearableAdvertisement *pkt);
   String argument;
-  BLEScan* pBLEScan;
+  NimBLEScan* pBLEScan;
   int nKnownEstimote;
   int nNewEstimote;
   struct Estimote *estimotes;
