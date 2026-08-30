@@ -82,19 +82,18 @@ static void _id2hex(const uint8_t *id, String& hex) {
   }
 }
 
-#ifdef IOTSA_WITH_WEB
 void
-IotsaEstimoteMod::handler() {
+IotsaEstimoteMod::webHandler() {
   bool anyChanged = false;
-  if( server->hasArg("Clear")) {
+  if( api.webService->server->hasArg("Clear")) {
     if (needsAuthentication()) return;
     nKnownEstimote = nNewEstimote = 0;
     if (estimotes) free(estimotes);
     estimotes = NULL;
     anyChanged = true;
   }
-  if( server->hasArg("new")) {
-    String id = server->arg("new");
+  if( api.webService->server->hasArg("new")) {
+    String id = api.webService->server->arg("new");
     _hex2id(id, estimotes[nKnownEstimote].id);
     nKnownEstimote++;
     nNewEstimote = 0;
@@ -118,14 +117,13 @@ IotsaEstimoteMod::handler() {
     _id2hex(estimotes[i].id, id);
     message += "<li>" + id + "<form method='get'><input type='hidden' name='new' value='" + id + "'><input type='submit' value='Add' name='add'></form></li>";
   }
-  server->send(200, "text/html", message);
+  api.webService->server->send(200, "text/html", message);
 }
 
 String IotsaEstimoteMod::info() {
   String message = "<p>Built with estimote module. See <a href=\"/estimote\">/estimote</a> to change devices and settings, <a href=\"/api/estimote\">/api/estimote</a> for the tracked/observed estimote configuration, or <a href=\"/api/readings\">/api/readings</a> for live sensor readings.</p>";
   return message;
 }
-#endif // IOTSA_WITH_WEB
 
 void IotsaEstimoteMod::setup() {
   configLoad();
@@ -139,8 +137,6 @@ void IotsaEstimoteMod::setup() {
   pBLEScan->setInterval(155);
   pBLEScan->setWindow(151);  // less or equal setInterval value
 }
-
-#ifdef IOTSA_WITH_API
 
 void _fillValues(JsonObject repl, Estimote *ep) {
   repl["x"] = ep->x;
@@ -165,9 +161,9 @@ void _fillReply(JsonObject container, Estimote *ep) {
 
 bool IotsaEstimoteMod::getHandler(const char *path, JsonObject& reply) {
   if (strcmp(path, "/api/readings") == 0) {
-    if (server->hasArg("id")) {
+    if (api.webService->server->hasArg("id")) {
       // Special case: get results for a single estimote
-      String idWanted = server->arg("id");
+      String idWanted = api.webService->server->arg("id");
       uint8_t idbuf[8];
       _hex2id(idWanted, idbuf);
       for (int i=0; i<nKnownEstimote; i++) {
@@ -229,17 +225,13 @@ bool IotsaEstimoteMod::putHandler(const char *path, const JsonVariant& request, 
   if (anyChanged) configSave();
   return anyChanged;
 }
-#endif // IOTSA_WITH_API
 
-void IotsaEstimoteMod::serverSetup() {
-#ifdef IOTSA_WITH_WEB
-  server->on("/estimote", std::bind(&IotsaEstimoteMod::handler, this));
-#endif
-#ifdef IOTSA_WITH_API
-  api.setup("/api/estimote", true, true);
-  api.setup("/api/readings", true, false);
+void IotsaEstimoteMod::lateSetup() {
   name = "estimote";
-#endif
+  // /estimote (the module page) is registered by this get=true api.setup().
+  api.setup("estimote", true, true);
+  // /api/readings is data only -- no matching web page (webPage=false).
+  api.setup("readings", true, false, false, false);
 }
 
 void IotsaEstimoteMod::configLoad() {
