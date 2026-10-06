@@ -29,8 +29,8 @@ struct Estimote {
 
 class IotsaEstimoteMod : public IotsaModule, public NimBLEScanCallbacks {
 public:
-  IotsaEstimoteMod(IotsaApplication &_app, IotsaAuthenticationProvider *_auth=NULL, bool early=false)
-  : IotsaModule(_app, _auth, early),
+  IotsaEstimoteMod(IotsaApplication &_app, bool early=false)
+  : IotsaModule(_app, early),
     pBLEScan(NULL),
     nKnownEstimote(0),
     nNewEstimote(0),
