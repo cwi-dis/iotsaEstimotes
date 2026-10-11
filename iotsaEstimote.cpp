@@ -198,7 +198,7 @@ bool IotsaEstimoteMod::getHandler(const char *path, JsonObject& reply) {
   return true;
 }
 
-bool IotsaEstimoteMod::putHandler(const char *path, const JsonVariant& request, JsonObject& reply) {
+bool IotsaEstimoteMod::putHandler(const char *path, const JsonVariant& request, JsonObject& reply, bool *changed) {
   bool anyChanged = false;
   JsonObject reqObj = request.as<JsonObject>();
   if (reqObj["estimotes"].is<JsonArray>()) {
@@ -223,7 +223,8 @@ bool IotsaEstimoteMod::putHandler(const char *path, const JsonVariant& request, 
     anyChanged = true;
   }
   if (anyChanged) configSave();
-  return anyChanged;
+  if ((anyChanged) && changed) *changed = true;
+  return true;
 }
 
 void IotsaEstimoteMod::lateSetup() {
