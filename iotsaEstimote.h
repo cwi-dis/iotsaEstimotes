@@ -45,12 +45,22 @@ public:
   void onResult(const NimBLEAdvertisedDevice *advertisedDevice) override;
   void onScanEnd(const NimBLEScanResults& scanResults, int reason) override;
 protected:
-  bool getHandler(const char *path, JsonObject& reply) override;
-  bool putHandler(const char *path, const JsonVariant& request, JsonObject& reply, bool *changed = nullptr) override;
+  void getHandler(IotsaApiContext& ctx) override;
+  void putHandler(IotsaApiContext& ctx) override;
+#ifdef IOTSA_WITH_WEB
+  String webTitle() override { return "Estimotes"; }
+  void formHandler_args(IotsaWebContext& ctx) override;
+  void formHandler_fields(IotsaWebContext& ctx) override;
+  // GET /api/readings[?id=...], a raw web handler (it reads the query).
+  void readingsHandler();
+#endif
   void configLoad() override;
   void configSave() override;
-  void webHandler() override;
+  // Called in the loop task only: the estimotes array is not shared with the
+  // BLE task (onResult() posts to the loop, cwi-dis/iotsa#236).
   void _sensorData(struct NearableAdvertisement *pkt);
+  void _clear();
+  int _find(const uint8_t *id, int from, int to);
   String argument;
   NimBLEScan* pBLEScan;
   int nKnownEstimote;

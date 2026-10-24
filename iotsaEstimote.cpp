@@ -82,43 +82,76 @@ static void _id2hex(const uint8_t *id, String& hex) {
   }
 }
 
-void
-IotsaEstimoteMod::webHandler() {
-  bool anyChanged = false;
-  if( api.webService->server->hasArg("Clear")) {
-    if (needsAuthentication()) return;
-    nKnownEstimote = nNewEstimote = 0;
-    if (estimotes) free(estimotes);
-    estimotes = NULL;
-    anyChanged = true;
-  }
-  if( api.webService->server->hasArg("new")) {
-    String id = api.webService->server->arg("new");
-    _hex2id(id, estimotes[nKnownEstimote].id);
-    nKnownEstimote++;
-    nNewEstimote = 0;
-    anyChanged = true;
-  }
-  if (anyChanged) configSave();
+void IotsaEstimoteMod::_clear() {
+  nKnownEstimote = nNewEstimote = 0;
+  if (estimotes) free(estimotes);
+  estimotes = NULL;
+}
 
-  String message = "<html><head><title>Estimote module</title></head><body><h1>Estimote module</h1>";
-  message += "<form method='get'><input type='submit' value='Reload'></form>";
-  message += "<h2>Known Estimotes</h2><ol>";
-  for (int i=0; i<nKnownEstimote; i++) {
+// The index of the estimote with this id among [from, to), or -1.
+int IotsaEstimoteMod::_find(const uint8_t *id, int from, int to) {
+  for (int i=from; i<to; i++) {
+    if (memcmp(id, estimotes[i].id, 8) == 0) return i;
+  }
+  return -1;
+}
+
+#ifdef IOTSA_WITH_WEB
+// Add (a newly seen estimote to the tracked ones) and Clear (all of them):
+// setting up for a session, which needs "estimotes" (lateSetup()).
+void IotsaEstimoteMod::formHandler_args(IotsaWebContext& ctx) {
+  if (ctx.argAction("add", IotsaContext::Saved)) {
     String id;
-    _id2hex(estimotes[i].id, id);
-    message += "<li>" + id + ", x=" + String(estimotes[i].x) + " y=" + String(estimotes[i].y) + " z=" + String(estimotes[i].z) + ", moving=" + String(estimotes[i].moving) + ", curDur=" + String(estimotes[i].curMoveDuration) + " " + periodNames[estimotes[i].curMovePeriod] + ", prevDur=" + String(estimotes[i].prevMoveDuration) + " " + periodNames[estimotes[i].prevMovePeriod] + ", temp=" + String(estimotes[i].temp) + ", voltage=" + String(estimotes[i].voltage) + (estimotes[i].voltageStress ? " (radio on)" : " (idle)") + "</li>";
+    ctx.argPeek("add", id);
+    uint8_t idbuf[8];
+    _hex2id(id, idbuf);
+    int idx = _find(idbuf, nKnownEstimote, nKnownEstimote+nNewEstimote);
+    if (idx < 0) {
+      ctx.error(404, "Estimote " + id + " has not been seen.");
+      return;
+    }
+    // The new one moves to the end of the tracked ones.
+    struct Estimote tmp = estimotes[nKnownEstimote];
+    estimotes[nKnownEstimote] = estimotes[idx];
+    estimotes[idx] = tmp;
+    nKnownEstimote++;
+    nNewEstimote--;
   }
-  message += "</ol><form method='get'><input type='submit' name='Clear' value='Clear'></form>";
+  if (ctx.argConfirmedAction("clear")) {
+    _clear();
+    // A confirmed action counts as Transient: save it here.
+    configSave();
+    ctx.feedback("All estimotes removed.");
+  }
+}
 
-  message += "<h2>Unknown Estimotes</h2><ul>";
+void IotsaEstimoteMod::formHandler_fields(IotsaWebContext& ctx) {
+  if (ctx.includesEveryday()) {
+    ctx << "<p><a href='/estimote'>Reload</a></p>";
+    if (nKnownEstimote == 0) {
+      ctx << "<p>No estimotes tracked.</p>";
+      return;
+    }
+    String message = "<ol>";
+    for (int i=0; i<nKnownEstimote; i++) {
+      String id;
+      _id2hex(estimotes[i].id, id);
+      message += "<li>" + id + ", x=" + String(estimotes[i].x) + " y=" + String(estimotes[i].y) + " z=" + String(estimotes[i].z) + ", moving=" + String(estimotes[i].moving) + ", curDur=" + String(estimotes[i].curMoveDuration) + " " + periodNames[estimotes[i].curMovePeriod] + ", prevDur=" + String(estimotes[i].prevMoveDuration) + " " + periodNames[estimotes[i].prevMovePeriod] + ", temp=" + String(estimotes[i].temp) + ", voltage=" + String(estimotes[i].voltage) + (estimotes[i].voltageStress ? " (radio on)" : " (idle)") + "</li>";
+    }
+    message += "</ol>";
+    ctx << message;
+    return;
+  }
+  ctx << "<h3>Newly seen estimotes</h3>";
+  if (nNewEstimote == 0) ctx << "<p>None.</p>";
   for (int i=nKnownEstimote; i<nKnownEstimote+nNewEstimote; i++) {
     String id;
     _id2hex(estimotes[i].id, id);
-    message += "<li>" + id + "<form method='get'><input type='hidden' name='new' value='" + id + "'><input type='submit' value='Add' name='add'></form></li>";
+    ctx.showButton("add", "Add " + id, IotsaContext::Saved, id.c_str());
   }
-  api.webService->server->send(200, "text/html", message);
+  if (nKnownEstimote) ctx.showConfirmedButton("clear", "Remove all tracked estimotes", IotsaContext::Saved);
 }
+#endif // IOTSA_WITH_WEB
 
 String IotsaEstimoteMod::info() {
   String message = "<p>Built with estimote module. See <a href=\"/estimote\">/estimote</a> to change devices and settings, <a href=\"/api/estimote\">/api/estimote</a> for the tracked/observed estimote configuration, or <a href=\"/api/readings\">/api/readings</a> for live sensor readings.</p>";
@@ -159,80 +192,89 @@ void _fillReply(JsonObject container, Estimote *ep) {
   _fillValues(repl, ep);
 }
 
-bool IotsaEstimoteMod::getHandler(const char *path, JsonObject& reply) {
-  if (strcmp(path, "/api/readings") == 0) {
-    if (api.webService->server->hasArg("id")) {
-      // Special case: get results for a single estimote
-      String idWanted = api.webService->server->arg("id");
-      uint8_t idbuf[8];
-      _hex2id(idWanted, idbuf);
-      for (int i=0; i<nKnownEstimote; i++) {
-        if (memcmp(idbuf, estimotes[i].id, 8) == 0) {
-          _fillValues(reply, estimotes+i);
-          return true;
-        }
-      }
-      IFDEBUG IotsaSerial.println("Unknown estimote " + idWanted);
-      return false;
+#ifdef IOTSA_WITH_WEB
+// All tracked estimotes, keyed by id, or with ?id= only that one. A raw web
+// handler, because the API context has no query arguments; it is open to
+// everyone on the network.
+void IotsaEstimoteMod::readingsHandler() {
+  IotsaWebServer *server = app.server;
+  JsonDocument doc;
+  JsonObject root = doc.to<JsonObject>();
+  if (server->hasArg("id")) {
+    String idWanted = server->arg("id");
+    uint8_t idbuf[8];
+    _hex2id(idWanted, idbuf);
+    int idx = _find(idbuf, 0, nKnownEstimote);
+    if (idx < 0) {
+      server->send(404, "text/plain", "Unknown estimote " + idWanted);
+      return;
     }
+    _fillValues(root, estimotes+idx);
+  } else {
     for (int i=0; i<nKnownEstimote; i++) {
-      _fillReply(reply, estimotes+i);
+      _fillReply(root, estimotes+i);
     }
-    return true;
   }
-  // path == "/api/estimote": configuration. Just the names of tracked
-  // estimotes, and of untracked-but-observed ones available to add -- no
-  // sensor values here, those live under /api/readings.
-  JsonArray idList = reply["estimotes"].to<JsonArray>();
+  String body;
+  serializeJson(doc, body);
+  server->send(200, "application/json", body);
+}
+#endif // IOTSA_WITH_WEB
+
+// The configuration: the ids of the tracked estimotes, and of the newly seen
+// ones that can be added. The sensor values are on /api/readings.
+void IotsaEstimoteMod::getHandler(IotsaApiContext& ctx) {
+  JsonArray idList = ctx.reply()["estimotes"].to<JsonArray>();
   for (int i=0; i<nKnownEstimote; i++) {
     String id;
     _id2hex(estimotes[i].id, id);
     idList.add(id);
   }
-  JsonArray unknownList = reply["newEstimotes"].to<JsonArray>();
+  JsonArray unknownList = ctx.reply()["newEstimotes"].to<JsonArray>();
   for (int i=nKnownEstimote; i<nKnownEstimote+nNewEstimote; i++) {
     String id;
     _id2hex(estimotes[i].id, id);
     unknownList.add(id);
   }
-  return true;
 }
 
-bool IotsaEstimoteMod::putHandler(const char *path, const JsonVariant& request, JsonObject& reply, bool *changed) {
-  bool anyChanged = false;
-  JsonObject reqObj = request.as<JsonObject>();
-  if (reqObj["estimotes"].is<JsonArray>()) {
-    JsonArray ids = reqObj["estimotes"].as<JsonArray>();
-    if (estimotes) free(estimotes);
-    estimotes = NULL;
-    nKnownEstimote = nNewEstimote = 0;
-    nKnownEstimote = ids.size();
-    if (nKnownEstimote > 0) {
-      estimotes = (struct Estimote *)malloc(nKnownEstimote*sizeof(struct Estimote));
-      for(int i=0; i<nKnownEstimote; i++) {
-        const String& id = ids[i];
-        _hex2id(id, estimotes[i].id);
-        estimotes[i].x = estimotes[i].y = estimotes[i].z = 0;
-        estimotes[i].moving = false;
-        estimotes[i].curMoveDuration = estimotes[i].prevMoveDuration = 0;
-        estimotes[i].temp = 0;
-        estimotes[i].voltage = 0;
-        estimotes[i].seen = false;
-      }
-    }
-    anyChanged = true;
+// estimotes: the ids to track, replacing the list (the newly seen ones are
+// forgotten too).
+void IotsaEstimoteMod::putHandler(IotsaApiContext& ctx) {
+  if (!ctx.argAction("estimotes", IotsaContext::Saved)) return;
+  JsonVariant v = ctx.request()["estimotes"];
+  if (!v.is<JsonArray>()) {
+    ctx.error(400, "estimotes: a list of ids");
+    return;
   }
-  if (anyChanged) configSave();
-  if ((anyChanged) && changed) *changed = true;
-  return true;
+  JsonArray ids = v.as<JsonArray>();
+  for (JsonVariant id : ids) {
+    if (!id.is<const char *>() || strlen(id.as<const char *>()) != 16) {
+      ctx.error(400, "estimotes: ids of 16 hex digits");
+      return;
+    }
+  }
+  _clear();
+  if (ids.size() == 0) return;
+  estimotes = (struct Estimote *)calloc(ids.size(), sizeof(struct Estimote));
+  if (estimotes == NULL) {
+    ctx.error(500, "out of memory");
+    return;
+  }
+  nKnownEstimote = ids.size();
+  for (int i=0; i<nKnownEstimote; i++) {
+    _hex2id(ids[i].as<String>(), estimotes[i].id);
+  }
 }
 
 void IotsaEstimoteMod::lateSetup() {
   name = "estimote";
   // /estimote (the module page) is registered by this get=true api.setup().
   api.setup("estimote", true, true);
-  // /api/readings is data only -- no matching web page (webPage=false).
-  api.setup("readings", true, false, false, false);
+  changesNeedRight("estimotes");
+#ifdef IOTSA_WITH_WEB
+  addWebHandler("/api/readings", [this]() { readingsHandler(); }, IOTSA_RIGHT_NONE, true);
+#endif
 }
 
 void IotsaEstimoteMod::configLoad() {
@@ -325,17 +367,13 @@ void IotsaEstimoteMod::_sensorData(struct NearableAdvertisement *pkt) {
     ep++;
   }
   // A new Estimote we have not seen before.
-  nNewEstimote++;
-  n = nKnownEstimote + nNewEstimote;
-  if (n == 1) {
-    ep = (struct Estimote *)malloc(sizeof(struct Estimote));
-  } else {
-    ep = (struct Estimote *)realloc((void *)estimotes, n * sizeof(struct Estimote));
-  }
+  n = nKnownEstimote + nNewEstimote + 1;
+  ep = (struct Estimote *)realloc((void *)estimotes, n * sizeof(struct Estimote));
   if (ep == NULL) {
     IotsaSerial.println("out of memory");
     return;
   }
+  nNewEstimote++;
   estimotes = ep;
   ep = ep + (n-1);
   memcpy(ep->id, pkt->nearableID, 8);
@@ -371,9 +409,13 @@ void IotsaEstimoteMod::onResult(const NimBLEAdvertisedDevice *advertisedDevice) 
   if (manufacturerDataLength < sizeof(NearableAdvertisement)) {
     return;
   }
-  NearableAdvertisement *adv = (NearableAdvertisement *)manufacturerData;
-  if (adv->companyID != ID_ESTIMOTE) {
+  // This runs in the BLE task; the estimotes array belongs to the loop task
+  // (the web and REST handlers read it, _sensorData() reallocates it). So a
+  // copy of the advertisement goes to the loop (cwi-dis/iotsa#236).
+  NearableAdvertisement adv;
+  memcpy(&adv, manufacturerData, sizeof(adv));
+  if (adv.companyID != ID_ESTIMOTE) {
     return;
   }
-  _sensorData(adv);
+  IotsaApplication::postToLoop([this, adv]() mutable { _sensorData(&adv); });
 }
