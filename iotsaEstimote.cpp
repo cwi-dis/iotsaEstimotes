@@ -290,7 +290,7 @@ void IotsaEstimoteMod::configLoad() {
   if (nKnownEstimote > 0) {
     estimotes = (struct Estimote *)malloc(nKnownEstimote*sizeof(struct Estimote));
     if (estimotes == NULL) {
-      IotsaSerial.println("out of memory");
+      IOTSA_LOG("estimote", "out of memory");
       return;
     }
     for(int i=0; i<nKnownEstimote; i++) {
@@ -360,7 +360,7 @@ void IotsaEstimoteMod::_sensorData(struct NearableAdvertisement *pkt) {
       ep->seen = true;
       _parsePacket(ep, pkt);
 
-      IFDEBUG IotsaSerial.printf("Estimote num=%d x=%f y=%f z=%f\n", (ep-estimotes), ep->x, ep->y, ep->z);
+      IOTSA_LOG_DEBUG("estimote", "num=%d x=%f y=%f z=%f", (int)(ep-estimotes), ep->x, ep->y, ep->z);
       int idx = ep-estimotes;
       return;
     }
@@ -370,7 +370,7 @@ void IotsaEstimoteMod::_sensorData(struct NearableAdvertisement *pkt) {
   n = nKnownEstimote + nNewEstimote + 1;
   ep = (struct Estimote *)realloc((void *)estimotes, n * sizeof(struct Estimote));
   if (ep == NULL) {
-    IotsaSerial.println("out of memory");
+    IOTSA_LOG("estimote", "out of memory");
     return;
   }
   nNewEstimote++;
@@ -379,7 +379,7 @@ void IotsaEstimoteMod::_sensorData(struct NearableAdvertisement *pkt) {
   memcpy(ep->id, pkt->nearableID, 8);
   _parsePacket(ep, pkt);
   ep->seen = true;
-  IFDEBUG IotsaSerial.printf("New Estimote %2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x x=%d y=%d z=%d\n", ep->id[0], ep->id[1], ep->id[2], ep->id[3], ep->id[4], ep->id[5], ep->id[6], ep->id[7], ep->x, ep->y, ep->z);
+  IOTSA_LOG("estimote", "new %2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x x=%f y=%f z=%f", ep->id[0], ep->id[1], ep->id[2], ep->id[3], ep->id[4], ep->id[5], ep->id[6], ep->id[7], ep->x, ep->y, ep->z);
 }
 
 void IotsaEstimoteMod::loop() {
@@ -391,9 +391,8 @@ void IotsaEstimoteMod::loop() {
 
   if (!isScanning && millis() > startScanAt) {
     pBLEScan->clearResults();
-    IFDEBUG IotsaSerial.print("SCAN ");
     isScanning = pBLEScan->start(BLESCAN_MAX_DURATION);
-    IFDEBUG IotsaSerial.println("started");
+    IOTSA_LOG_DEBUG("estimote", "scan started");
   }
 }
 
